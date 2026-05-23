@@ -1,0 +1,251 @@
+import { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Star, Trophy, Sparkles, Heart, Swords, Puzzle, Award } from 'lucide-react';
+import confetti from 'canvas-confetti';
+import BattleLevel from './BattleLevel';
+import PuzzleLevel from './PuzzleLevel';
+import AchievementSystem, { useGameStats } from './AchievementSystem';
+import { CRTFilter } from './PixelEffects';
+import { PixelButton, PixelPanel, PixelBadge, PixelAvatar } from './PixelUI';
+import { HomeScreen } from './HomeScreen';
+import { spriteAssets } from '../utils/spriteManager';
+import { playBackgroundMusic, stopBackgroundMusic } from '../utils/audioManager';
+interface Level {
+  id: number;
+  name: string;
+  type: 'recognize' | 'add' | 'subtract' | 'compare' | 'battle' | 'puzzle';
+  gameMode?: 'basic' | 'battle' | 'puzzle';
+  range: { min: number; max: number };
+  questions: number;
+  stars: number;
+  description?: string;
+}
+
+interface Question {
+  num1: number;
+  num2?: number;
+  operator?: '+' | '-' | '>';
+  answer: number;
+  options: number[];
+}
+
+export default function MathGame() {
+  const [currentScreen, setCurrentScreen] = useState<'home' | 'levels' | 'game' | 'result' | 'achievements'>('home');
+  const [selectedLevel, setSelectedLevel] = useState<Level | null>(null);
+  const [currentQuestion, setCurrentQuestion] = useState(0);
+  const [question, setQuestion] = useState<Question | null>(null);
+  const [score, setScore] = useState(0);
+  const [lives, setLives] = useState(3);
+  const [streak, setStreak] = useState(0);
+  const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
+  const [levelProgress, setLevelProgress] = useState<Record<number, number>>({});
+  const [enableCRT, setEnableCRT] = useState(false);
+  const { stats, updateStats } = useGameStats();
+
+  const levels: Level[] = [
+    { id: 1, name: '认识数字 1-10', type: 'recognize', gameMode: 'basic', range: { min: 1, max: 10 }, questions: 5, stars: 0, description: '数一数星星' },
+    { id: 2, name: '数值大冒险', type: 'battle', gameMode: 'battle', range: { min: 5, max: 15 }, questions: 3, stars: 0, description: '击败数字怪物！' },
+    { id: 3, name: '5以内加法', type: 'add', gameMode: 'basic', range: { min: 1, max: 5 }, questions: 8, stars: 0, description: '学习简单加法' },
+    { id: 4, name: '方块拼图', type: 'puzzle', gameMode: 'puzzle', range: { min: 4, max: 12 }, questions: 3, stars: 0, description: '拼出指定面积' },
+    { id: 5, name: '10以内加法', type: 'add', gameMode: 'basic', range: { min: 1, max: 10 }, questions: 10, stars: 0, description: '加法练习' },
+    { id: 6, name: '勇者试炼', type: 'battle', gameMode: 'battle', range: { min: 10, max: 25 }, questions: 5, stars: 0, description: '更强的怪物！' },
+    { id: 7, name: '5以内减法', type: 'subtract', gameMode: 'basic', range: { min: 1, max: 5 }, questions: 8, stars: 0, description: '学习简单减法' },
+    { id: 8, name: '几何大师', type: 'puzzle', gameMode: 'puzzle', range: { min: 8, max: 20 }, questions: 5, stars: 0, description: '周长与对称' },
+    { id: 9, name: '10以内减法', type: 'subtract', gameMode: 'basic', range: { min: 1, max: 10 }, questions: 10, stars: 0, description: '减法练习' },
+    { id: 10, name: '终极Boss战', type: 'battle', gameMode: 'battle', range: { min: 15, max: 30 }, questions: 6, stars: 0, description: '挑战暗影龙！' },
+    { id: 11, name: '数字比大小', type: 'compare', gameMode: 'basic', range: { min: 1, max: 20 }, questions: 10, stars: 0, description: '比较数字' },
+    { id: 12, name: '空间解谜王', type: 'puzzle', gameMode: 'puzzle', range: { min: 12, max: 25 }, questions: 6, stars: 0, description: '终极拼图挑战' },
+  ];
+
+  useEffect(() => {
+    const saved = localStorage.getItem('mathGameProgress');
+    if (saved) {
+      setLevelProgress(JSON.parse(saved));
+    }
+
+    // 播放主页背景音乐
+    if (currentScreen === 'home') {
+      playBackgroundMusic('home');
+    }
+
+    // 清理函数：组件卸载时停止音乐
+    return () => {
+      stopBackgroundMusic();
+    };
+  }, [currentScreen]);
+
+  const generateQuestion = (level: Level): Question => {
+    const { min, max } = level.range;
+
+    if (level.type === 'recognize') {
+      const num = Math.floor(Math.random() * (max - min + 1)) + min;
+      const options = [num];
+      while (options.length < 4) {
+        const opt = Math.floor(Math.random() * (max - min + 1)) + min;
+        if (!options.includes(opt)) options.push(opt);
+      }
+      return {
+        num1: num,
+        answer: num,
+        options: options.sort(() => Math.random() - 0.5)
+      };
+    }
+
+    if (level.type === 'add') {
+      const num1 = Math.floor(Math.random() * (max - min + 1)) + min;
+      const num2 = Math.floor(Math.random() * (max - num1)) + min;
+      const answer = num1 + num2;
+      const options = [answer];
+      while (options.length < 4) {
+        const opt = Math.floor(Math.random() * (max * 2)) + 1;
+        if (!options.includes(opt) && opt > 0) options.push(opt);
+      }
+      return {
+        num1,
+        num2,
+        operator: '+',
+        answer,
+        options: options.sort(() => Math.random() - 0.5)
+      };
+    }
+
+    if (level.type === 'subtract') {
+      const num1 = Math.floor(Math.random() * (max - min + 1)) + min;
+      const num2 = Math.floor(Math.random() * num1) + 1;
+      const answer = num1 - num2;
+      const options = [answer];
+      while (options.length < 4) {
+        const opt = Math.floor(Math.random() * max);
+        if (!options.includes(opt) && opt >= 0) options.push(opt);
+      }
+      return {
+        num1,
+        num2,
+        operator: '-',
+        answer,
+        options: options.sort(() => Math.random() - 0.5)
+      };
+    }
+
+    // compare
+    const num1 = Math.floor(Math.random() * (max - min + 1)) + min;
+    const num2 = Math.floor(Math.random() * (max - min + 1)) + min;
+    const answer = num1 > num2 ? num1 : num2;
+    return {
+      num1,
+      num2,
+      operator: '>',
+      answer,
+      options: [num1, num2]
+    };
+  };
+
+  const startGame = (level: Level) => {
+    setSelectedLevel(level);
+    setCurrentQuestion(0);
+    setScore(0);
+    setLives(3);
+    setStreak(0);
+    setIsCorrect(null);
+    setQuestion(generateQuestion(level));
+    setCurrentScreen('game');
+  };
+
+  const handleAnswer = (selected: number) => {
+    if (!question || !selectedLevel) return;
+
+    const correct = selected === question.answer;
+    setIsCorrect(correct);
+
+    if (correct) {
+      const points = 10 + streak * 5;
+      setScore(score + points);
+      setStreak(streak + 1);
+
+      confetti({
+        particleCount: 50,
+        spread: 60,
+        origin: { y: 0.6 }
+      });
+
+      playSound('correct');
+    } else {
+      setLives(lives - 1);
+      setStreak(0);
+      playSound('wrong');
+    }
+
+    setTimeout(() => {
+      setIsCorrect(null);
+
+      if (!correct && lives <= 1) {
+        setCurrentScreen('result');
+        return;
+      }
+
+      if (currentQuestion + 1 >= selectedLevel.questions) {
+        const stars = calculateStars();
+        const newProgress = { ...levelProgress, [selectedLevel.id]: Math.max(levelProgress[selectedLevel.id] || 0, stars) };
+        setLevelProgress(newProgress);
+        localStorage.setItem('mathGameProgress', JSON.stringify(newProgress));
+
+        // 更新统计数据
+        updateStats({
+          totalScore: stats.totalScore + score,
+          levelsCompleted: stats.levelsCompleted + 1,
+          threeStarLevels: stars === 3 ? stats.threeStarLevels + 1 : stats.threeStarLevels,
+          highestStreak: Math.max(stats.highestStreak, streak),
+        });
+
+        setCurrentScreen('result');
+      } else {
+        setCurrentQuestion(currentQuestion + 1);
+        setQuestion(generateQuestion(selectedLevel));
+      }
+    }, 1000);
+  };
+
+  const calculateStars = () => {
+    if (!selectedLevel) return 0;
+    const percentage = (score / (selectedLevel.questions * 15)) * 100;
+    if (percentage >= 90) return 3;
+    if (percentage >= 70) return 2;
+    if (percentage >= 50) return 1;
+    return 0;
+  };
+
+  const playSound = (type: 'correct' | 'wrong') => {
+    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+
+    if (type === 'correct') {
+      oscillator.frequency.value = 523.25; // C5
+      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+      oscillator.start();
+      oscillator.frequency.exponentialRampToValueAtTime(783.99, audioContext.currentTime + 0.1); // G5
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
+      oscillator.stop(audioContext.currentTime + 0.2);
+    } else {
+      oscillator.frequency.value = 200;
+      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+      oscillator.start();
+      oscillator.frequency.exponentialRampToValueAtTime(100, audioContext.currentTime + 0.2);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+      oscillator.stop(audioContext.currentTime + 0.3);
+    }
+  };
+
+  if (currentScreen === 'home') {
+    return (
+      <HomeScreen 
+        onStart={() => setCurrentScreen('levels')}
+        onAchievements={() => setCurrentScreen('achievements')}
+        enableCRT={enableCRT}
+        onCRTChange={(enabled) => setEnableCRT(enabled)}
+      />
+    );
+  }
